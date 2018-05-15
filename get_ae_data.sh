@@ -6,8 +6,8 @@
 # MORE DETAILS ON THE ARRAY EXPRESS API: https://www.ebi.ac.uk/arrayexpress/help/programmatic_access.html
 #
 # INPUTS:
-# _ t TYPE OF NGS (1 for "RNA-seq of coding RNA"; 2 for "RNA-seq of coding RNA"; 3 for both)
-# _ s SPECIES (1 for "homo sapiens"; 2 for "mus musculus"; 3 for both)
+# _ t TYPE OF NGS ('"RNA-seq of coding RNA"'; '"ChIP-seq"')
+# _ s SPECIES ('"homo sapiens"'; '"mus musculus"')
 # _ e MAX NUMBER OF EXPERIMENTS
 # _ f MAX NUMBER OF RAW FILES PER EXPERIMENT
 # _ p MAX NUMBER OF PARALLEL THREADS
@@ -40,8 +40,12 @@ eval set -- "$OPTS"
 
 VERBOSE=false
 HELP=false
-TYPE="ChIP-seq"
-SPECIES="homo sapiens"
+#TYPE="ChIP-seq"
+#TYPE="RNA-seq of coding RNA"
+TYPE='"RNA-seq of coding RNA"+OR+"ChIP-seq"'
+#SPECIES="homo sapiens"
+#SPECIES="mus musculus"
+SPECIES='"homo sapiens"+OR+"mus musculus"'
 NEXP=1
 NFILES=1
 THREADS=1
@@ -98,8 +102,22 @@ if [ $VERBOSE = true ]; then
     echo -e "\tOUTDIR=$OUTDIR"
 fi
 
-exit
 
+SPECIES="'homo sapiens' 'mus musculus'"
+
+
+echo ${SPECIES[@]}
+arr=$SPECIES
+
+#AE_EXP_BASEURL="https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments?"
+#AE_EXP_QUERY="raw=true&species=\"homo sapiens\"+OR+\"mus musculus\"&exptype=\"RNA-seq of coding RNA\"+OR+\"ChIP-seq\""
+AE_EXP_QUERY="https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments?raw=true&species=$SPECIES&exptype=$TYPE"
+#echo $AE_EXP_BASEURL$AE_EXP_QUERY
+#echo $AE_EXP_QUERY > $LOG
+
+
+
+exit
 
 # ==============================================================================
 # ==============================================================================
@@ -108,32 +126,27 @@ exit
 source ~/.bashrc
 source ./config.sh
 
-echo "START" > $LOG
-date > $LOG
-
-cd $SRC
-# get all experimets
-wget -N -O $DATADIR/experiments https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments
-# xmllint --format $DATADIR/experiments > $DATADIR/experiments.pretty
-#less experiments.pretty
+echo "START pmc_ae_download" > $LOG
+date >> $LOG
 
 # Get a subset of experiments
-#wget -N -O $DATADIR/experiments.subset 'https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments?raw=true&species="homo sapiens"&exptype="RNA-seq of coding RNA"'
-wget -N -O $DATADIR/experiments.subset 'https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments?raw=true&species="homo sapiens"+OR+"mus musculus"&exptype="RNA-seq of coding RNA"+OR+"ChIP-seq"'
+#wget -N -O $tOUTDIR/experiments.subset 'https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments?raw=true&species="homo sapiens"+OR+"mus musculus"&exptype="RNA-seq of coding RNA"+OR+"ChIP-seq"'
+wget -N -O $OUTDIR/experiments.subset "'$AE_EXP_QUERY'"
+
 #xmllint --format $DATADIR/experiments.subset > $DATADIR/experiments.subset.pretty
 #less experiments.subset.pretty
 
 # parsing the experiments
-xsltproc --novalid $SRC/xslt/parse_experiments.xslt $DATADIR/experiments > $PROCESSING/experiments.tsv
-xsltproc --novalid $SRC/xslt/parse_experiments.xslt $DATADIR/experiments.subset > $PROCESSING/experiments.subset.tsv
-xsltproc --novalid $SRC/xslt/parse_experiments_providers.xslt $DATADIR/experiments.subset > $PROCESSING/experiments.subset.providers.tsv
-xsltproc --novalid $SRC/xslt/parse_experiments_bioassaydatagroups.xslt $DATADIR/experiments.subset > $PROCESSING/experiments.subset.bioassaydatagroups.tsv
-xsltproc --novalid $SRC/xslt/parse_experiments_bibliography.xslt $DATADIR/experiments.subset > $PROCESSING/experiments.subset.bibliography.tsv
+#xsltproc --novalid $SRC/xslt/parse_experiments.xslt $DATADIR/experiments > $PROCESSING/experiments.tsv
+xsltproc --novalid $SRC/xslt/parse_experiments.xslt $OUTDIR/experiments.subset > $OUTDIR/experiments.subset.tsv
+xsltproc --novalid $SRC/xslt/parse_experiments_providers.xslt $OUTDIR/experiments.subset > $OUTDIR/experiments.subset.providers.tsv
+xsltproc --novalid $SRC/xslt/parse_experiments_bioassaydatagroups.xslt $OUTDIR/experiments.subset > $OUTDIR/experiments.subset.bioassaydatagroups.tsv
+xsltproc --novalid $SRC/xslt/parse_experiments_bibliography.xslt $OUTDIR/experiments.subset > $OUTDIR/experiments.subset.bibliography.tsv
 
-wc -l $PROCESSING/experiments.subset.tsv >> $LOG
-wc -l $PROCESSING/experiments.subset.providers.tsv >> $LOG
-wc -l $PROCESSING/experiments.subset.bioassaydatagroups.tsv >> $LOG
-wc -l $PROCESSING/experiments.subset.bibliography.tsv >> $LOG
+wc -l $OUTDIR/experiments.subset.tsv >> $LOG
+wc -l $OUTDIR/experiments.subset.providers.tsv >> $LOG
+wc -l $OUTDIR/experiments.subset.bioassaydatagroups.tsv >> $LOG
+wc -l $OUTDIR/experiments.subset.bibliography.tsv >> $LOG
 
 #less $PROCESSING/experiments.subset.tsv
 #grep "EMAIL:" $DATADIR/experiments.subset.tsv | wc -l # 1637
@@ -149,73 +162,12 @@ wc -l $PROCESSING/experiments.subset.bibliography.tsv >> $LOG
 # filtering
 #egrep "rawData,|scan," $PROCESSING/experiments.subset.tsv | grep "Homo sapiens" | grep "EMAIL:" | grep "RNA-seq of coding RNA" | grep "PMID:" | wc -l
 #egrep "rawData,|scan," $PROCESSING/experiments.subset.tsv | grep -P "\tHomo sapiens\t|\tMus musculus\t" | grep -P "\tRNA-seq of coding RNA\t|\tChIP-seq\t" | grep "EMAIL:" | grep "PMID:" > $PROCESSING/experiments.subset.filtered.tsv
-egrep "rawData,|scan," $PROCESSING/experiments.subset.tsv | grep -P "\tHomo sapiens\t|\tMus musculus\t" | grep -P "\tRNA-seq of coding RNA\t|\tChIP-seq\t" | grep "PMID:" > $PROCESSING/experiments.subset.filtered.tsv
-wc -l $PROCESSING/experiments.subset.filtered.tsv >> $LOG
+egrep "rawData,|scan," $OUTDIR/experiments.subset.tsv | grep -P "\tHomo sapiens\t|\tMus musculus\t" | grep -P "\tRNA-seq of coding RNA\t|\tChIP-seq\t" | grep "PMID:" > $OUTDIR/experiments.subset.filtered.tsv
+wc -l $OUTDIR/experiments.subset.filtered.tsv >> $LOG
 
 
-# ==============================================================================
-# OVERLAP CITED ARTICLES AND AE_EXPERIMENTS DATA
-# ==============================================================================
-
-#cut -f 1 $PROCESSING/CITA.cites.tsv > $PROCESSING/CITA.cites.pmids
-#cut -f 3 $PROCESSING/experiments.subset.bibliography.tsv > $PROCESSING/experiments.subset.bibliography.pmids
-#python3 $SRC/venndata.py inter $PROCESSING/CITA.cites.pmids $PROCESSING/experiments.subset.bibliography.pmids > $PROCESSING/pmc_ae.pmids
-##python3 $SRC/venndata.py set1 $PROCESSING/CITA.cites.pmids $PROCESSING/experiments.subset.bibliography.pmids > $PROCESSING/pmc_ae1.pmids
-##python3 $SRC/venndata.py set2 $PROCESSING/CITA.cites.pmids $PROCESSING/experiments.subset.bibliography.pmids > $PROCESSING/pmc_ae2.pmids
-#wc -l pmc_ae.pmids >> $LOG
-
-cd $PROCESSING/
-#time Rscript $SRC/pmc_ae_selection.r $CITANET $PROCESSING/experiments.subset.tsv $AEBIB $INFOS
-time Rscript $SRC/pmc_ae_selection.r $CITANET $PROCESSING/experiments.subset.filtered.tsv $AEBIB $INFOS
-# pmc_ae_selection.tsv - "id", "pmid", "incites", "outcites", "species", "experimenttype", "bioassaydatagroups", "journal", "year", "date", "pmcid", "doi", "authorsPMC", "authors"
-# pmc_ae_selection2014.tsv
-# pmc_ae_years.tsv
-
-#wc -l pmc_ae_selection.tsv # 1240
-#wc -l pmc_ae_selection2014.tsv # 301
-
-
-# ==============================================================================
-# DOWNLOAD AE FILES (TO DO - PERFORM IT ON THE CLUSTER!)
-# ==============================================================================
-
-# # GET AND PROCESS SAMPLES DATA
-# cd $DATADIR/samples
-# rm -f $DATADIR/samples/*
-# time Rscript $SRC/pmc_ae_download.r 500 $PROCESSING/pmc_ae_selection2014.tsv $DATADIR/samples # DEFINE BETTER NUMBER OF LINES !!!
-# # rm -f $PROCESSING/pmc_ae_samples_files.tsv
-# rm -f $PROCESSING/pmc_ae_samples.tsv
-# for f in $DATADIR/samples/*
-# do
-#   xsltproc --novalid $SRC/xslt/parse_samples.xslt $f >> $PROCESSING/pmc_ae_samples.tsv
-# done
-#
-# # GET FASTQ FILES
-# # select few (3) files per experiment and downolad
-# rm -f $PROCESSING/pmc_ae_samples_todownload.tsv
-# rm -f $PROCESSING/pmc_ae_samples_files.tsv
-# time Rscript $SRC/pmc_ae_downloadFastQ.r $PROCESSING/pmc_ae_samples.tsv $DATADIR/samples
-# mv $DATADIR/samples/pmc_ae_samples_todownload.tsv $PROCESSING/pmc_ae_samples_todownload.tsv
-# mv $DATADIR/samples/pmc_ae_samples_files.tsv $PROCESSING/pmc_ae_samples_files.tsv
-# # pmc_ae_samples_todownload.tsv
-# # pmc_ae_samples_files.tsv
-#
-# #ll *.gz | wc -l
-# #192
+echo "END pmc_ae_download" > $LOG
+date >> $LOG
 
 exit
 
-# ==============================================================================
-# Analyze on the cluster
-# ==============================================================================
-# exit
-# ssh andradedb
-# cd ~/projects/arrayexpress/
-# ./main_fastq_proc.sh
-# exit
-
-# ==============================================================================
-# Machine Learning
-# ==============================================================================
-
-# $SRC/main_learning.sh
