@@ -26,11 +26,12 @@
 # CREATION DATE: 2018-05-15
 #
 # TO DO:
-# 2018-05-15: complete get_citations, get URLs of files, download them, and process them
-# 2018-05-15: implement as parameters: min_max_dates, min_max_totalfiles, min_max_citations
-
+# 2018-05-16: select a min of "options.files" ftp files in the table of samples
+# 2018-05-15: get URLs of files, download them, and process them
 #
 # TO DO HISTORY:
+# 2018-05-15: complete get_citations, get URLs of files, download them, and process them
+# 2018-05-15: implement as parameters: min_max_dates, min_max_totalfiles, min_max_citations
 #
 # ==============================================================================
 from optparse import OptionParser
@@ -121,7 +122,7 @@ file_ae_exp = os.path.join(options.dir, 'ae_exp.xml')
 print("Downloading experiments metadata:")
 if(os.path.isfile(file_ae_exp) and os.path.getsize(file_ae_exp)>0):
 	print("\tFile exists: "+file_ae_exp)
-#else:
+else:
 	urllib.request.urlretrieve(ae_url, file_ae_exp)
 
 
@@ -153,7 +154,7 @@ script_outfile_pairs = (
 print("XSLT processing:")
 for pair in script_outfile_pairs:
 	script, outfile = pair
-	if(not os.path.isfile(outfile) or os.path.getsize(file_ae_exp)<=0):
+	if(not os.path.isfile(outfile) or os.path.getsize(outfile)<=0):
 		xml  = ET.parse(file_ae_exp)
 		xslt = ET.parse(script)
 		transform = ET.XSLT(xslt)
@@ -187,77 +188,168 @@ else:
 
 
 # ==============================================================================
-# SELECT AND DOWNLOAD INDIVIDUAL EXPERIMENTS METADATA AND RAW DATA FILES
+# SELECT INDIVIDUAL EXPERIMENTS (DATE, #FILES, #CITATIONS)
 # ==============================================================================
-#with open(file_parse_exp_filt, "r") as fd:
-#    rd = csv.reader(fd, delimiter="\t", quotechar='"')
-#    for row in rd:
-#        print(row)
-
-# Define range for PMID age
-# Define range for total raw files 
-# Define range for number of citations
-min_max_dates = ("2013-01-01", "2014-12-31")
-min_max_totalfiles = (3, 50)
-min_max_citations = (1, 10000)
 
 def get_citations(pmid):
+	"""Returns the number of citations to a PubMed (PubMed Central?) article 
+	from PubMed Central (PMC) articles. Use moderately to avoid overloading
+	PubMed servers.
+	IN:  PubMed Identifier (PMID) of article A (integer)
+	OUT: number of PMC articles citing A (integer)
+	"""
 	import urllib.request
-	opener = urllib.request.FancyURLopener({})
-	url = "https://www.ncbi.nlm.nih.gov/pubmed/"+pmid
-	f = opener.open(url)
-	content = f.read(300)
-	print(content)
-	return(5)
+	import re
+	url = "https://www.ncbi.nlm.nih.gov/pubmed?linkname=pubmed_pubmed_citedin&from_uid="+pmid
+	resp = urllib.request.urlopen(url)
+	content_b = resp.read()
+	content = content_b.decode()
+	n=0
+	match=re.search(r'Items: (\d+)', content)
+	if match:
+		n=int(match.group(1))
+	return(n)
 
-#urllib.request.urlretrieve(ae_url, file_ae_exp)
+print("Selecting experiments:")
+# Define ranges for PMID age, total raw files, and number of citations
+min_max_dates = ("2013-01-01", "2016-12-31")
+min_max_totalfiles = (3, 50)
+min_max_citations = (1, 10000)
+file_selec_exp = os.path.join(options.dir, 'ae_exp_sele.tsv')
 
-# Get PMID
-with open(file_parse_exp_filt, "r") as fd:
-	rd = csv.reader(fd, delimiter="\t", quotechar='"')
-	row_counter=0
-	for row in rd:
-#		print(row)
-		ae_id=row[1]
-		date=row[2]
-		pmid=0
-		nexp=0
-		match=re.search(r'PMID:(\d+)', row[6])
-		if match:
-			pmid=match.group(1)
-		match=re.search(r'(scan|rawData),(\d+)', row[7])
-		if match:
-			nexp=int(match.group(2))
-		# test validity
-		select_nexp = (nexp>=min_max_totalfiles[0]) and (nexp<=min_max_totalfiles[1])
-		if not select_nexp:
-			continue
+if(not os.path.isfile(file_selec_exp) or os.path.getsize(file_selec_exp)<=0):
+	with open(file_parse_exp_filt, "r") as fd, open(file_selec_exp, "w") as o:
+		rd = csv.reader(fd, delimiter="\t", quotechar='"')
+		row_counter=0
+		for row in rd:
+			# get/parse values
+			ae_id=row[1]
+			date=row[2]
+			pmid=0
+			nexp=0
+			match=re.search(r'PMID:(\d+)', row[6])
+			if match:
+				pmid=match.group(1)
+			match=re.search(r'(scan|rawData),(\d+)', row[7])
+			if match:
+				nexp=int(match.group(2))
+#			print(" _ ".join([str(row_counter), ae_id, date, str(pmid), str(nexp)]))
 
-		select_date = datetime.strptime(min_max_dates[0], '%Y-%m-%d') <= datetime.strptime(date, '%Y-%m-%d') <= datetime.strptime(min_max_dates[1], '%Y-%m-%d')
-		if not select_date:
-			continue
+			# test nexp validity
+			select_nexp = (	(nexp>=min_max_totalfiles[0]) and 
+							(nexp<=min_max_totalfiles[1]))
+			if not select_nexp:
+#				print("skip (nexp)")
+				continue
 
-##		n_cita = get_citations(pmid)
-#		n_cita = 5
-##		select_cita = min_max_citations[0] <= n_cita <= min_max_citations[1]
-#		if not (min_max_citations[0] <= n_cita <= min_max_citations[1]):
-#			continue
+			# test date validity
+			select_date = 	datetime.strptime(min_max_dates[0], '%Y-%m-%d') <= datetime.strptime(date, '%Y-%m-%d') <= datetime.strptime(min_max_dates[1], '%Y-%m-%d')
+			if not select_date:
+#				print("skip (date)")
+				continue
 
-		print(" _ ".join([ae_id, date, str(pmid), str(nexp)]))
-		row_counter+=1
-		if row_counter>=options.experiments:
-			break
+			# test n_cita validity
+			n_cita = get_citations(pmid)
+			print("\tCitations: "+ str(n_cita))
+			select_cita = min_max_citations[0] <= n_cita <= min_max_citations[1]
+			if not (min_max_citations[0] <= n_cita <= min_max_citations[1]):
+#				print("skip (citations)")
+				continue
 
-#		if(select_nexp and select_date and select_cita):
-#			row_counter+=1
-#			print(" _ ".join([ae_id, date, str(pmid), str(nexp)]))
+	#		print(" _ ".join([ae_id, date, str(pmid), str(nexp)]))
+			o.write("\t".join([ae_id, date, str(pmid), str(nexp), str(n_cita)])+"\n")
+			row_counter+=1
+			if row_counter>=options.experiments:
+#				print("row_counter: "+ str(row_counter))
+#				print("options.experiments: "+str(options.experiments))
+				break
+else:
+	print("\tFile exists: "+file_selec_exp)
 
-# Get number of citations (http request)
-# Get metadata 
-# Get files
+
+# ==============================================================================
+# DOWNLOAD SAMPLES METADATA FOR SELECTED EXPERIMENTS
+# ==============================================================================
+
+file_ae_exp_samp = os.path.join(options.dir, 'ae_exp_samp.tsv')
+dir_ae_exp_samp =  os.path.join(options.dir, 'samples')
+if not os.path.exists(dir_ae_exp_samp):
+    os.makedirs(dir_ae_exp_samp)
+
+print("Downloading Samples metadata");
+if(	os.path.isfile(file_selec_exp) and os.path.getsize(file_selec_exp)>=0 and
+	(not os.path.isfile(file_ae_exp_samp) or os.path.getsize(file_ae_exp_samp)<=0)
+	):
+	with open(file_selec_exp, "r") as f, open(file_ae_exp_samp, "w") as o:
+		# Do something
+		aeidCounts = {}
+		pmidCounts = {}
+		for line in f:
+			fields = line.split("\t")
+			aeid=fields[0]
+			pmid=fields[2]
+			aeidCounts.setdefault(aeid, aeidCounts.get(aeid,0)+1)
+			n_aeid=aeidCounts.get(aeid,0)
+			pmidCounts.setdefault(pmid, pmidCounts.get(pmid,0)+1)
+			n_pmid=pmidCounts.get(pmid,0)
+			print("\tProcessing: "+aeid);
+			print("\t\tAEID: "+str(pmid)+". Count: "+str(n_aeid))
+			print("\t\tPMID: "+str(pmid)+". Count: "+str(n_pmid))
+			if(n_aeid==1 and n_pmid==1):
+				print("\t\tDownloading: "+aeid);
+				ae_url = "https://www.ebi.ac.uk/arrayexpress/xml/v3/experiments/" + aeid + "/samples"
+				ae_url = urllib.parse.quote(ae_url, safe=':/?*=\'"&+')
+	#			print("\t"+ae_url)
+				file_aeid = os.path.join(dir_ae_exp_samp, aeid+'.xml')
+	#			print("\t"+file_aeid)
+				if(not os.path.isfile(file_aeid) or os.path.getsize(file_aeid)<=0):
+					urllib.request.urlretrieve(ae_url, file_aeid)
+				else:
+					print("\t\tFile exists: "+file_aeid)
+
+				print("\t\tXSLT processing: "+aeid);
+				script_parse_exp_samp = os.path.join(options.xsltdir, 'parse_samples.xslt')
+#				print(script_parse_exp_samp)
+	#			file_parse_aeid       = os.path.join(dir_ae_exp_samp, aeid+'.tsv')
+	#			print(file_parse_aeid)
+				script, infile = (script_parse_exp_samp, file_aeid)
+				xml  = ET.parse(infile)
+				xslt = ET.parse(script)
+				transform = ET.XSLT(xslt)
+				tsv = transform(xml)
+				o.write(str(tsv))
+else:
+	print("\tFile exists: "+file_ae_exp_samp)
 
 
+# ==============================================================================
+# PARSE SAMPLES METADATA AND DOWNLOAD SOME FILES FROM EACH EXPERIMENT
+# ==============================================================================
 
+print("Downloading raw files:");
 
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv(file_ae_exp_samp, sep='\t', header=None)
+#print(df.head())
+print(df.describe())
+df.columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
+#print(df.head())
+#print(df.tail())
+print(df.shape)
+df = df[df.J.notnull()]
+print(df.shape)
+df = df.drop_duplicates(subset='I')
+print(df.shape)
+#df = df.groupby('A').tail(options.files)
+#df = df.groupby('A').apply(lambda x: x.sample(options.files))
+#print(df.shape)
+print(df.head(17))
+
+# Existing FTP link = no NaN in col 9
+# No paired-end sample (but may be replicates) = unique SRR id in col 8
+# Order by experiment and SRR = Order by col 0 and 8
+# Select a few rows per experiment
 
 
