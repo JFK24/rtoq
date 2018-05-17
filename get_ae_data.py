@@ -26,12 +26,13 @@
 # CREATION DATE: 2018-05-15
 #
 # TO DO:
-# 2018-05-16: select a min of "options.files" ftp files in the table of samples
-# 2018-05-15: get URLs of files, download them, and process them
+# 2018-05-17: process downloaded FastQ files
 #
 # TO DO HISTORY:
 # 2018-05-15: complete get_citations, get URLs of files, download them, and process them
 # 2018-05-15: implement as parameters: min_max_dates, min_max_totalfiles, min_max_citations
+# 2018-05-16: select a min of "options.files" ftp files in the table of samples
+# 2018-05-15: get URLs of files, download them, and process them
 #
 # ==============================================================================
 from optparse import OptionParser
@@ -323,17 +324,17 @@ else:
 
 
 # ==============================================================================
-# PARSE SAMPLES METADATA AND DOWNLOAD SOME FILES FROM EACH EXPERIMENT
+# PARSE SAMPLES METADATA AND SELECT SOME FILES FROM EACH EXPERIMENT
 # ==============================================================================
 
-print("Downloading raw files:");
+print("Parsing URLs:");
 
 import pandas as pd
 import numpy as np
 
 df = pd.read_csv(file_ae_exp_samp, sep='\t', header=None)
 #print(df.head())
-print(df.describe())
+#print(df.describe())
 df.columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
 #print(df.head())
 #print(df.tail())
@@ -343,13 +344,88 @@ print(df.shape)
 df = df.drop_duplicates(subset='I')
 print(df.shape)
 #df = df.groupby('A').tail(options.files)
-#df = df.groupby('A').apply(lambda x: x.sample(options.files))
-#print(df.shape)
-print(df.head(17))
 
-# Existing FTP link = no NaN in col 9
-# No paired-end sample (but may be replicates) = unique SRR id in col 8
-# Order by experiment and SRR = Order by col 0 and 8
-# Select a few rows per experiment
+
+#def my_sample(frame):
+#	if(frame.shape[0]>0 and frame.shape[0]>=options.files):
+#		frame=frame.sample(options.files)
+#		return frame
+
+def sampleExact(dataframe, nrows):
+	"""
+	Returns a DataFrame with a fixed number of sampled rows 
+	or None if not enough rows
+	IN: frame = DataFrame (pandas?) = input data frame
+	IN: nrows = integer = number of rows to sample
+	OUT: a DataFrame with n=nrows sampled rows, 
+		 an empty DataFrame (with matching columns) if not enough rows
+	"""
+	if(dataframe.shape[0]>=nrows):
+		dataframe=dataframe.sample(nrows)
+		return dataframe
+	return dataframe[:0]
+
+#df = df.groupby('A').apply(lambda x: x.sample(options.files))
+df = df.groupby('A').apply(lambda x: sampleExact(x, options.files))
+print(df.shape)
+#df = df.groupby('A').apply(my_sample)
+
+#print(df.shape)
+#print(df.head(17))
+#print("Few cells:")
+#print(df.iloc[0:1,0:1])
+#print(sampleExact(df, 10000))
+
+
+file_ae_exp_urls = os.path.join(options.dir, 'ae_exp_urls.tsv')
+df.to_csv(file_ae_exp_urls, sep="\t", header=False, index=False)
+
+
+# ==============================================================================
+# DOWNLOAD SOME FILES FROM EACH EXPERIMENT
+# ==============================================================================
+
+print("Downloading URLs:");
+
+
+df = pd.read_csv(file_ae_exp_urls, sep="\t", header=None)
+df.columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
+#print(df.tail())
+
+df['Q'] = df['A']+"."+df['I']+".fq.gz"
+df['R'] = False
+
+#print(df.head())
+
+#print(df.J[0])
+
+for index, row in df.iterrows():
+#	print(row['A'], row['J'])
+	url = row['J']
+	fname = row['Q']
+	print("\t"+fname)
+	print("\t"+url)
+
+	ae_url = urllib.parse.quote(url, safe=':/?*=\'"&+')
+	file_path = os.path.join(options.dir, fname)
+	
+	match = re.search(r'((fastq.gz)|(fq.gz))', ae_url)
+	if match:
+#		print("\tURL file extension: "+match.group())
+		if(	not os.path.isfile(file_path) or 
+			os.path.getsize(file_path)<=0
+			):
+			urllib.request.urlretrieve(ae_url, file_path)
+			df.set_value(index,'R',True)	
+		else:
+			print("\tFile exists: "+file_path)
+			df.set_value(index,'R',True)	
+	else:
+		print("\tURL file extension: no match => not downloaded")
+		next
+
+file_ae_exp_down = os.path.join(options.dir, 'ae_exp_down.tsv')
+df.to_csv(file_ae_exp_down, sep="\t", header=False, index=False)
+
 
 
