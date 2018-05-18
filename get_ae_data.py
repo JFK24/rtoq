@@ -361,7 +361,7 @@ def sampleExact(dataframe, nrows):
 		 an empty DataFrame (with matching columns) if not enough rows
 	"""
 	if(dataframe.shape[0]>=nrows):
-		dataframe=dataframe.sample(nrows)
+		dataframe=dataframe.sample(nrows, random_state=1234)
 		return dataframe
 	return dataframe[:0]
 
